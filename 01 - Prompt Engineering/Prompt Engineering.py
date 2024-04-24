@@ -50,15 +50,18 @@ import os
 from langchain.llms import HuggingFacePipeline
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from langchain.chat_models import ChatDatabricks
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 #call llama2 70B, hosted by Databricks
 llama_model = ChatDatabricks(endpoint="databricks-llama-2-70b-chat", max_tokens = 400)
+dbrx_model = ChatDatabricks(endpoint="databricks-dbrx-instruct", max_tokens = 400, temperature=0.7)
 
 # COMMAND ----------
 
 # DBTITLE 1,Start with a Simple Question about Spark Joins
 user_question = "How can I speed up my Spark join operation?"
-llama_model.predict(user_question)
+user_answer = dbrx_model.invoke(user_question)
+print(user_answer)
 
 # COMMAND ----------
 
@@ -80,15 +83,15 @@ prompt_template = PromptTemplate(
     template=intro_template,
 )
 
-llama_chain = LLMChain(
-    llm=llama_model,
+dbrx_chain = LLMChain(
+    llm=dbrx_model,
     prompt=prompt_template,
     output_key="Support Response",
     verbose=False
 )
 
-llama_chain_response = llama_chain.run({"question":user_question})
-print(llama_chain_response)
+dbrx_chain_response = dbrx_chain.invoke({"question":user_question})
+print(dbrx_chain_response)
 
 # COMMAND ----------
 
@@ -124,7 +127,7 @@ def run_llm_chain(input_string, template_string, model):
     verbose=False
   )
 
-  return model_chain.run({"input_string": input_string})
+  return model_chain.invoke({"input_string": input_string})
 
 # COMMAND ----------
 
@@ -136,13 +139,13 @@ zero_shot_template = """For each tweet, describe its sentiment:
 few_shot_template = """For each tweet, describe its sentiment:
                         [Tweet]: "I hate it when my phone battery dies."
                         [Sentiment]: Negative
-                        ###
+                        
                         [Tweet]: "My day has been 👍"
                         [Sentiment]: Positive
-                        ###
+                        
                         [Tweet]: "This is the link to the article"
                         [Sentiment]: Neutral
-                        ###
+                        
                         [Tweet]: {input_string}
                         [Sentiment]:
                       """
@@ -150,12 +153,12 @@ few_shot_template = """For each tweet, describe its sentiment:
 # COMMAND ----------
 
 tweet = "My day has been ugh"
-zero_shot_response = run_llm_chain(tweet, zero_shot_template, llama_model)
+zero_shot_response = run_llm_chain(tweet, zero_shot_template, dbrx_model)
 print(zero_shot_response)
 
 # COMMAND ----------
 
-few_shot_response = run_llm_chain(tweet, few_shot_template, llama_model)
+few_shot_response = run_llm_chain(tweet, few_shot_template, dbrx_model)
 print(few_shot_response)
 
 # COMMAND ----------
@@ -171,7 +174,7 @@ apples = """
 "Imagine you are at a grocery store and need to buy apples. They are sold in bags of 6 apples each and cost $2 per bag. If you need 20 apples for a recipe, how many bags should you buy and how much will it cost?
 """
 
-llama_model.predict(apples)
+dbrx_model.invoke(apples)
 
 # COMMAND ----------
 
@@ -181,7 +184,7 @@ chain_of_reasoning_prompt = """
                             {input_string}
                             """
 
-cor_response = run_llm_chain(apples, chain_of_reasoning_prompt, llama_model)
+cor_response = run_llm_chain(apples, chain_of_reasoning_prompt, dbrx_model)
 print(cor_response)
 
 # COMMAND ----------
@@ -203,11 +206,11 @@ no_hallucinations_prompt = """
 # COMMAND ----------
 
 liquid_cluster = "What is liquid clustering on Databricks?"
-llama_model.predict(liquid_cluster)
+dbrx_model.invoke(liquid_cluster)
 
 # COMMAND ----------
 
-run_llm_chain(liquid_cluster, no_hallucinations_prompt, llama_model)
+run_llm_chain(liquid_cluster, no_hallucinations_prompt, dbrx_model)
 
 # COMMAND ----------
 
@@ -257,9 +260,9 @@ model_chain.run() #TODO: what do we need to pass into run()?
 from mlflow.models import infer_signature
 
 input_str="How can I speed up my Spark joins?"
-prediction = llama_chain.run(input_str)
+prediction = dbrx_chain.invoke(input_str)
 input_columns = [
-    {"type": "string", "name": input_key} for input_key in llama_chain.input_keys
+    {"type": "string", "name": input_key} for input_key in dbrx_chain.input_keys
 ]
 signature = infer_signature(input_columns, prediction)
 
@@ -274,13 +277,13 @@ experiment_name = f"/Users/{current_user}/genai-prompt-engineering-workshop"
 mlflow.set_experiment(experiment_name)
 
 # set the name of our model
-model_name = "2langchainz-llama70b"
+model_name = "2langchainz-dbrx"
 
 # get experiment id to pass to the run
 experiment_id = mlflow.get_experiment_by_name(experiment_name).experiment_id
 with mlflow.start_run(experiment_id=experiment_id):
     mlflow.langchain.log_model(
-        llama_chain,
+        dbrx_chain,
         model_name,
         signature=signature,
         input_example=input_str,
@@ -317,4 +320,12 @@ mlflow.register_model(
 
 # COMMAND ----------
 
+chatbot_registered = mlflow.langchain.load_model(f"models:/{catalog}.{schema}.{model_name}/{3}")
 
+# COMMAND ----------
+
+chatbot_registered.invoke("What is Databricks?")
+
+# COMMAND ----------
+
+chatbot_registered.invoke("What is MLflow?")
